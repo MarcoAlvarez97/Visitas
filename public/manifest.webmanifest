@@ -1,0 +1,32 @@
+{
+  "name": "RutaVisitas — Agenda de visitas a clientes",
+  "short_name": "RutaVisitas",
+  "description": "Organizá tus reuniones con clientes y calculá la mejor ruta para tus visitas del día. Los datos se guardan en la nube: usalos desde la PC y el teléfono.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#059669",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

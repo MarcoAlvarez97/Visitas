@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Reunión / visita a cliente
+model Meeting {
+  id        String   @id @default(cuid())
+  date      String // "YYYY-MM-DD"
+  time      String // "HH:mm"
+  company   String
+  address   String
+  contact   String?
+  phone     String?
+  mapsUrl   String?
+  notes     String?
+  lat       Float?
+  lng       Float?
+  done      Boolean  @default(false) // visita ya realizada
+  doneAt    DateTime?
+  source    String   @default("MANUAL") // MANUAL | SHEETS
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
+// Configuración única de la app
+model Settings {
+  id           String    @id @default("default")
+  sheetsUrl    String?
+  startAddress String?
+  startLat     Float?
+  startLng     Float?
+  lastSyncAt   DateTime?
+  lastSyncMsg  String?
+}
+
+// Caché de direcciones geolocalizadas (Nominatim)
+model GeocodeCache {
+  id        String   @id @default(cuid())
+  address   String   @unique
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+}
