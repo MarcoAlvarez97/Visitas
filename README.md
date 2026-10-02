@@ -128,6 +128,7 @@ Vercel **redespliega automáticamente** en ~2 minutos. No hay que tocar nada má
 
 | Síntoma | Causa probable | Solución |
 |---------|----------------|----------|
+| Error `Failed to connect to database: ./db/custom.db` | Faltan las variables de entorno, o las cargaste pero no hiciste Redeploy | Cargá `DATABASE_URL` y `DATABASE_AUTH_TOKEN` en Settings → Environment Variables y después **Deployments → ⋯ → Redeploy** |
 | La app abre pero da error 500 al cargar datos | Faltan variables de entorno, o hay un espacio extra en el valor | Revisá `DATABASE_URL` y `DATABASE_AUTH_TOKEN` en Vercel → Settings → Environment Variables, y hacé **Redeploy** |
 | `/api/setup` responde `{"ok":false}` | Token de Turso mal copiado o vencido | Generá un token nuevo en Turso y actualizá la variable |
 | El deploy falla | Error de build | Vercel → Deployments → click en el deploy fallido → **Build Logs** te dice la línea exacta |
