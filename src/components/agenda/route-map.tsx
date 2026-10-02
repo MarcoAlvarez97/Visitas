@@ -1,6 +1,11 @@
 "use client"
 
-// Mapa de ruta con Leaflet (cargado solo en cliente) + marcadores numerados
+// Mapa de ruta con Leaflet (cargado solo en cliente)
+// Mejoras:
+// - Fondo estilo Google Maps (Esri World Street Map, gratis y sin API key)
+// - Trazado REAL por las calles vía OSRM (ruteo vehicular público, sin key)
+//   con fallback automático a la línea recta punteada si falla la red
+// - Pines estilo Google Maps (gota roja numerada / gota azul de inicio)
 
 import { useEffect, useRef } from "react"
 import "leaflet/dist/leaflet.css"
@@ -15,11 +20,46 @@ export type MapPoint = {
   order?: number
 }
 
+// Pines tipo Google Maps (gota) con estilos inline: no depende de globals.css
 function pinHtml(p: MapPoint): string {
-  if (p.kind === "start") {
-    return `<div class="rv-pin rv-pin-start"><span>★</span></div>`
+  const isStart = p.kind === "start"
+  const bg = isStart ? "#1A73E8" : "#EA4335"
+  const text = isStart ? "★" : `${p.order ?? ""}`
+  const fontSize = isStart ? 15 : 13
+  return (
+    `<div style="width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);` +
+    `background:${bg};border:2px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.4);` +
+    `display:flex;align-items:center;justify-content:center;">` +
+    `<span style="transform:rotate(45deg);color:#ffffff;font-weight:700;font-size:${fontSize}px;` +
+    `line-height:1;font-family:Roboto,Arial,sans-serif;display:block;text-align:center;">${text}</span></div>`
+  )
+}
+
+// Pide a OSRM la geometría real de la ruta siguiendo calles.
+// Devuelve [lat,lng][] o null si algo falla (offline, timeout, sin ruta).
+async function fetchRoadGeometry(
+  coords: [number, number][],
+): Promise<[number, number][] | null> {
+  try {
+    if (coords.length < 2) return null
+    const pts = coords.map(([lat, lng]) => `${lng},${lat}`).join(";")
+    const url = `https://router.project-osrm.org/route/v1/driving/${pts}?overview=full&geometries=geojson`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 8000)
+    const res = await fetch(url, { signal: ctrl.signal })
+    clearTimeout(timer)
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      code?: string
+      routes?: { geometry?: { coordinates?: [number, number][] } }[]
+    }
+    if (data?.code !== "Ok" || !data.routes?.[0]?.geometry?.coordinates) return null
+    const raw = data.routes[0].geometry.coordinates
+    if (raw.length < 2) return null
+    return raw.map(([lng, lat]) => [lat, lng] as [number, number])
+  } catch {
+    return null
   }
-  return `<div class="rv-pin"><span>${p.order ?? ""}</span></div>`
 }
 
 export default function RouteMap({
@@ -31,6 +71,8 @@ export default function RouteMap({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<import("leaflet").Map | null>(null)
+  // Caché de geometrías ya calculadas (evita re-consultar OSRM)
+  const geoCacheRef = useRef<Map<string, [number, number][]>>(new Map())
 
   useEffect(() => {
     let cancelled = false
@@ -45,10 +87,28 @@ export default function RouteMap({
           attributionControl: true,
           scrollWheelZoom: true,
         })
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 19,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        }).addTo(mapRef.current)
+        // Fondo estilo Google Maps: Esri World Street Map (gratis, sin API key).
+        // Si Esri fallara, cambia solo al mapa estándar de OpenStreetMap.
+        let esriErrors = 0
+        const esriLayer = L.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+          {
+            maxZoom: 19,
+            attribution:
+              "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, OpenStreetMap contributors y la comunidad de usuarios GIS",
+          },
+        ).addTo(mapRef.current)
+        esriLayer.on("tileerror", () => {
+          esriErrors++
+          if (esriErrors === 8 && mapRef.current) {
+            mapRef.current.removeLayer(esriLayer)
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+              maxZoom: 19,
+              attribution:
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            }).addTo(mapRef.current)
+          }
+        })
       }
       const map = mapRef.current
       if (!map) return
@@ -58,30 +118,23 @@ export default function RouteMap({
         if (layer instanceof L.Marker || layer instanceof L.Polyline) map.removeLayer(layer)
       })
 
-      // Marcadores
+      // Marcadores estilo Google Maps
       for (const p of points) {
         const icon = L.divIcon({
           className: "",
           html: pinHtml(p),
-          iconSize: [28, 28],
-          iconAnchor: [14, 26],
+          iconSize: [30, 30],
+          iconAnchor: [15, 36],
         })
         L.marker([p.lat, p.lng], { icon, title: p.label })
           .addTo(map)
-          .bindPopup(`<b>${escHtml(p.label)}</b><br/><span style="font-size:12px">${escHtml(p.sub ?? "")}</span>`)
+          .bindPopup(
+            `<b style="font-family:Roboto,Arial,sans-serif;font-size:14px">${escHtml(p.label)}</b>` +
+              `<br/><span style="font-size:12px">${escHtml(p.sub ?? "")}</span>`,
+          )
       }
 
-      // Línea de ruta
-      if (polyline && polyline.length > 1) {
-        L.polyline(polyline, {
-          color: "#059669",
-          weight: 3,
-          opacity: 0.85,
-          dashArray: "7 7",
-        }).addTo(map)
-      }
-
-      // Ajustar vista
+      // Ajustar vista de inmediato (no espera el ruteo)
       const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number]))
       if (points.length === 1) {
         map.setView(bounds.getCenter(), 15)
@@ -89,6 +142,48 @@ export default function RouteMap({
         map.fitBounds(bounds.pad(0.22))
       }
       setTimeout(() => map.invalidateSize(), 80)
+
+      if (points.length < 2) return
+
+      // 1) Placeholder instantáneo: línea recta punteada (la de siempre)
+      let placeholder: import("leaflet").Polyline | null = null
+      if (polyline && polyline.length > 1) {
+        placeholder = L.polyline(polyline, {
+          color: "#5f6368",
+          weight: 3,
+          opacity: 0.6,
+          dashArray: "6 8",
+        }).addTo(map)
+      }
+
+      // 2) Trazado real por calles (OSRM), con caché y fallback
+      const key = points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(";")
+      let geo = geoCacheRef.current.get(key) ?? null
+      if (!geo) {
+        geo = await fetchRoadGeometry(points.map((p) => [p.lat, p.lng] as [number, number]))
+        if (cancelled) return
+        if (geo) geoCacheRef.current.set(key, geo)
+      }
+      if (cancelled || !mapRef.current) return
+
+      if (geo) {
+        if (placeholder) map.removeLayer(placeholder)
+        // Borde blanco (casing) + línea azul gruesa estilo Google Maps
+        L.polyline(geo, {
+          color: "#ffffff",
+          weight: 12,
+          opacity: 0.8,
+          lineJoin: "round",
+          lineCap: "round",
+        }).addTo(map)
+        L.polyline(geo, {
+          color: "#1A73E8",
+          weight: 7,
+          opacity: 0.95,
+          lineJoin: "round",
+          lineCap: "round",
+        }).addTo(map)
+      }
     }
 
     render()
