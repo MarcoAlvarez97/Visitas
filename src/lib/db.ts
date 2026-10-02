@@ -10,8 +10,26 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
+// Algunos paneles copian la URL con parámetros extra (ej. channel_binding)
+// que @libsql/client no soporta. Los limpiamos para que la conexión siempre
+// funcione con la misma variable de entorno.
+function sanitizeUrl(raw: string): string {
+  if (!raw.startsWith('libsql://') && !raw.startsWith('wss://') && !raw.startsWith('https://')) {
+    return raw // file: u otras URLs locales se dejan igual
+  }
+  try {
+    const u = new URL(raw)
+    for (const p of [...u.searchParams.keys()]) {
+      if (p !== 'authToken' && p !== 'tls') u.searchParams.delete(p)
+    }
+    return u.toString()
+  } catch {
+    return raw
+  }
+}
+
 function createDb(): PrismaClient {
-  const url = process.env.DATABASE_URL ?? 'file:./db/custom.db'
+  const url = sanitizeUrl(process.env.DATABASE_URL ?? 'file:./db/custom.db')
   const authToken = process.env.DATABASE_AUTH_TOKEN // solo necesario para Turso
 
   // En Prisma 6.19 el adaptador recibe la configuración de @libsql/client
